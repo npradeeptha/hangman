@@ -142,6 +142,8 @@ Here's this module being exercised from an iex session:
 
   @spec new_game :: state
   def new_game do
+    Hangman.Dictionary.random_word
+    |> init_game_state
   end
 
 
@@ -152,6 +154,7 @@ Here's this module being exercised from an iex session:
   """
   @spec new_game(binary) :: state
   def new_game(word) do
+    init_game_state(word)
   end
 
 
@@ -176,7 +179,29 @@ Here's this module being exercised from an iex session:
   """
 
   @spec make_move(state, ch) :: { state, atom, optional_ch }
+  def make_move(state = %{turns_remaining: 0}, _) do
+    {state, :lost, nil}
+  end
+
   def make_move(state, guess) do
+    {state, correct_guess} = check_guess(state, guess)
+    state = %{state | guessed: MapSet.put(state.guessed, guess)}
+
+    cond do
+      check_win?(state) ->
+        {state, :won, nil}
+
+      correct_guess -> 
+        {state, :good_guess, guess}
+
+      state.turns_remaining > 1 ->
+        state = %{state | turns_remaining: state.turns_remaining - 1}
+        {state, :bad_guess, guess}
+      
+      true -> 
+        state = %{ state | turns_remaining: state.turns_remaining - 1 }
+        { state, :lost, nil }
+    end
   end
 
 
@@ -187,6 +212,7 @@ Here's this module being exercised from an iex session:
   """
   @spec word_length(state) :: integer
   def word_length(%{ word: word }) do
+    length(word)
   end
 
   @doc """
@@ -199,6 +225,7 @@ Here's this module being exercised from an iex session:
 
   @spec letters_used_so_far(state) :: [ binary ]
   def letters_used_so_far(state) do
+    state.guessed |> MapSet.to_list
   end
 
   @doc """
@@ -211,6 +238,7 @@ Here's this module being exercised from an iex session:
 
   @spec turns_left(state) :: integer
   def turns_left(state) do
+    state.turns_remaining
   end
 
   @doc """
@@ -224,6 +252,13 @@ Here's this module being exercised from an iex session:
 
   @spec word_as_string(state, boolean) :: binary
   def word_as_string(state, reveal \\ false) do
+    check_placeholder = fn {ch, known} ->
+      cond do
+        known || reveal -> ch
+        true            -> "_"
+      end
+    end
+    state.word |> Enum.map(check_placeholder) |> Enum.join(" ")
   end
 
   ###########################
@@ -232,4 +267,31 @@ Here's this module being exercised from an iex session:
 
   # Your private functions go here
 
+  defp init_game_state(word) do
+    %{
+      word: String.codepoints(word) |> Enum.map(fn(c) -> {c, false} end),
+      guessed: MapSet.new,
+      turns_remaining: 10
+    }
+  end
+
+  defp check_guess(state, guess) do
+    if contains_character?(state.word, guess) do
+      word_with_mapped_letters = Enum.map(state.word, fn
+              {^guess, _} -> {guess, true}
+              char -> char end)
+
+      {%{state | word: word_with_mapped_letters}, true}
+    else
+      {state, false}
+    end
+  end
+
+  defp contains_character?(word, guess) do
+    Enum.any?(word, fn {ch, _} -> ch == guess end)
+  end
+
+  defp check_win?(%{word: word}) do
+    Enum.all?(word, fn{_ch, val} -> val end)
+  end
  end
